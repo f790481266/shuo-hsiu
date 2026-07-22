@@ -71,17 +71,21 @@ def notify_desktop(title, message):
 @st.cache_data(ttl=1800)
 def fetch_stock_data(ticker):
     try:
-        df = yf.download(ticker, period="5y", interval="1d", progress=False)
+        # 改用 1mo 期間並增加容錯，確保台股代號穩定抓取
+        df = yf.download(ticker, period="1mo", interval="1d", progress=False)
         if df.empty:
             return None
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = df.columns.get_level_values(0)
 
-        df["MA60"] = df["Close"].rolling(window=60).mean()
+        if "Close" not in df.columns:
+            return None
+
+        df["MA60"] = df["Close"].rolling(window=60, min_periods=1).mean()
         df["Bias60"] = (df["Close"] - df["MA60"]) / df["MA60"] * 100
 
-        low_9 = df["Low"].rolling(window=9).min()
-        high_9 = df["High"].rolling(window=9).max()
+        low_9 = df["Low"].rolling(window=9, min_periods=1).min()
+        high_9 = df["High"].rolling(window=9, min_periods=1).max()
         rsv = (df["Close"] - low_9) / (high_9 - low_9) * 100
 
         k_vals, d_vals = [50.0], [50.0]
@@ -252,7 +256,7 @@ with tab1:
             help="Show Hand 策略預設不再新增投入資金 ($0 元)",
         )
 
-    # 📊 新增視覺化進度條介面
+    # 📊 視覺化進度條介面
     st.markdown("#### 📈 各里程碑達成進度條")
     targets_bar = [
         ("1,000 萬元里程碑", 10000000),
@@ -349,7 +353,7 @@ with tab1:
                 continue
 
             today = df.iloc[-1]
-            yesterday = df.iloc[-2]
+            yesterday = df.iloc[-2] if len(df) > 1 else today
 
             close_p = float(today["Close"])
             ma60_p = float(today["MA60"])
@@ -497,7 +501,7 @@ with tab3:
     st.title("🗺️ 2026-2027 旅遊行程規劃、信用卡回饋上限與購物清單")
 
     # 1. 即時日幣匯率（以台灣銀行現金賣出為基準）
-    JPY_RATE = 0.1983  # 台灣銀行日圓現金賣出最新參考匯率
+    JPY_RATE = 0.1983
 
     st.markdown("### 💴 台灣銀行最新日圓參考匯率")
     h1, h2, h3 = st.columns(3)
@@ -596,14 +600,12 @@ with tab3:
     if st.button("新增至購物清單"):
         curr_code = "JPY" if "JPY" in new_curr else "KRW"
         st.session_state.shopping_list.append(
-            {"品項": "新品項", "幣別": curr_code, "預估外幣價格": new_price}
+            {"品項": new_item, "幣別": curr_code, "預估外幣價格": new_price}
         )
         st.success("已新增至購物清單！")
 
-    # 顯示購物清單
     if st.session_state.shopping_list:
         df_shop = pd.DataFrame(st.session_state.shopping_list)
-
         KRW_RATE = 0.024
 
         def calc_twd(row):
